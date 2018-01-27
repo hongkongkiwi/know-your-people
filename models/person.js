@@ -1,7 +1,9 @@
 const Schema = require('mongoose').Schema,
       ObjectId = Schema.ObjectId,
       bcrypt = require('bcrypt'),
-      moment = require('moment')
+      moment = require('moment'),
+      util = require('util'),
+      _ = require('underscore')
 
 module.exports = (mongoose) => {
   // Constants for login security
@@ -14,7 +16,7 @@ module.exports = (mongoose) => {
   let PersonSchema = new Schema({
       id                  : { type: ObjectId },
       email_addresses     : [{
-                              address       : { type: String, required: true },
+                              address       : { type: String, required: true, unique: true, index: true },
                               is_verified   : Boolean,
                             }],
       phone_numbers       : { type: Array },
@@ -52,16 +54,16 @@ module.exports = (mongoose) => {
       INVALID_2FACTOR: 3
   }
 
-  PersonSchema.virtual('isLocked').get(() => {
+  PersonSchema.virtual('isLocked').get(function() {
     let person = this
     // check for a future lock_until timestamp
-    return (person.login_info.lock_until && moment(person.login_info.lock_until).isBefore(moment()))
+    return (!_.isNull(person.login_info.lock_until) && moment(person.login_info.lock_until).isBefore(moment()))
   })
 
   /**
     Automatically Hash the password on save (note: this is not run on update)
     **/
-  PersonSchema.pre('save', (next) => {
+  PersonSchema.pre('save', function(next) {
     let person = this
 
     // only hash the password if it has been modified (or is new)
@@ -85,8 +87,10 @@ module.exports = (mongoose) => {
   /**
     Automatically Hash the password on save (note: this is not run on update)
     **/
-  PersonSchema.methods.comparePassword = (candidatePassword, cb) => {
+  PersonSchema.methods.comparePassword = function(candidatePassword, cb) {
     let person = this
+    if (!candidatePassword) return cb(null, false)
+
     bcrypt.compare(candidatePassword, person.login_info.password, (err, isMatch) => {
         if (err) return cb(err)
         cb(null, isMatch)
@@ -96,22 +100,21 @@ module.exports = (mongoose) => {
   /**
     This method will increment login attempts and if appropriate will lock the account
     **/
-  PersonSchema.methods.incrementLoginAttempts = (cb) => {
+  PersonSchema.methods.incrementLoginAttempts = function(cb) {
     let person = this
     // if we have a previous lock that has expired, restart at 1
-    if (person.login_info.lock_until && moment().isAfter(moment(person.login_info.lock_until))) {
-        return person.update({
-          login_info: {
-            $set: { login_attempts: 1 },
-            $unset: { lock_until: null }
-          }
-        }, cb)
+    if (!_.isNull(person.login_info.lock_until) && moment().isAfter(moment(person.login_info.lock_until))) {
+      return person.update({
+        $set: { "login_info.login_attempts": 1 },
+        $set: { "login_info.lock_until": null }
+      }, cb)
     }
     // otherwise we're incrementing
-    let updates = { $inc: { login_info: { login_attempts: 1 } } }
+    let updates = {}
+    updates.$inc = { "login_info.login_attempts": 1 }
     // lock the account if we've reached max attempts and it's not locked already
-    if (person.login_info.login_attempts + 1 >= MAX_LOGIN_ATTEMPTS && !person.isLocked) {
-        updates.$set = { login_info: { lock_until: moment().add(LOCK_TIME_MINS, 'minutes') } }
+    if ((person.login_info.login_attempts + 1) >= MAX_LOGIN_ATTEMPTS && !person.isLocked) {
+      updates.$set = { "login_info.lock_until": moment().add(LOCK_TIME_MINS, 'minutes') }
     }
     return person.update(updates, cb)
   }
@@ -119,53 +122,54 @@ module.exports = (mongoose) => {
   /**
     Checks whether person is authenticated
     **/
-  PersonSchema.statics.getAuthenticatedByEmail = (login_address, login_password, cb) => {
-    this.findOne({ email_addresses: { address: login_address } }, (err, person) => {
+  PersonSchema.statics.getAuthenticatedByEmail = util.promisify(function(login_address, login_password, cb) {
+    const reasons = this.FAILED_LOGIN_REASONS
+    this.findOne({ "email_addresses.address": login_address }, function(err, person) {
+      if (err) return cb(err)
+
+      // make sure the user exists
+      if (_.isNull(person)) {
+        return cb(null, null, reasons.NOT_FOUND)
+      }
+
+      // check if the account is currently locked
+      if (person.isLocked) {
+        // just increment login attempts if account is already locked
+        return person.incrementLoginAttempts((err) => {
+          if (err) return cb(err)
+          return cb(null, null, reasons.MAX_ATTEMPTS)
+        })
+      }
+
+      // test for a matching password
+      person.comparePassword(login_password, (err, isMatch) => {
         if (err) return cb(err)
 
-        // make sure the user exists
-        if (!person) {
-          return cb(null, null, reasons.NOT_FOUND)
-        }
-
-        // check if the account is currently locked
-        if (person.isLocked) {
-          // just increment login attempts if account is already locked
-          return person.incrementLoginAttempts((err) => {
+        // check if the password was a match
+        if (isMatch) {
+          // if there's no lock or failed attempts, just return the person
+          if (person.login_info.login_attempts == 0 && _.isNull(person.login_info.lock_until)) return cb(null, person)
+          // reset attempts and lock info
+          let updates = {
+              $set: {
+                      "login_info.login_attempts": 0,
+                      "login_info.lock_until": null
+                    }
+            }
+          return person.update(updates, (err) => {
             if (err) return cb(err)
-            return cb(null, null, reasons.MAX_ATTEMPTS)
+            return cb(null, person)
           })
         }
 
-        // test for a matching password
-        person.comparePassword(login_password, (err, isMatch) => {
-            if (err) return cb(err)
-
-            // check if the password was a match
-            if (isMatch) {
-              // if there's no lock or failed attempts, just return the person
-              if (!person.login_info.login_attempts && !person.login_info.lock_until) return cb(null, person)
-              // reset attempts and lock info
-              let updates = {
-                login_info: {
-                  $set: { login_attempts: 0 },
-                  $unset: { lock_until: null }
-                }
-              }
-              return person.update(updates, (err) => {
-                if (err) return cb(err)
-                return cb(null, person)
-              })
-            }
-
-            // password is incorrect, so increment login attempts before responding
-            person.incrementLoginAttempts((err) => {
-              if (err) return cb(err)
-              return cb(null, null, reasons.PASSWORD_INCORRECT)
-            })
+        // password is incorrect, so increment login attempts before responding
+        person.incrementLoginAttempts((err) => {
+          if (err) return cb(err)
+          return cb(null, null, reasons.PASSWORD_INCORRECT)
         })
+      })
     })
-  }
+  })
 
   models.PersonModel = mongoose.model('Person', PersonSchema)
 
