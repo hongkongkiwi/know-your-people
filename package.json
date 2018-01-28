@@ -9,7 +9,9 @@
   "author": "Andy Savage <andy@savage.hk>",
   "license": "ISC",
   "dependencies": {
+    "aws-sdk": "^2.188.0",
     "bcrypt": "^1.0.3",
+    "debug": "^3.1.0",
     "moment": "^2.20.1",
     "mongodb": "^3.0.1",
     "mongoose": "^5.0.1",

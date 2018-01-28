@@ -8,6 +8,10 @@ const Mongoose = require('mongoose').Mongoose
 let mongoose = new Mongoose()
 const Models = require('../../models/person')(mongoose),
       Person = Models.PersonModel
+let CONSTANTS = {
+  FAILED_LOGIN_REASONS: Models.FAILED_LOGIN_REASONS,
+  OPTIONS: Models.OPTIONS
+}
 mongoose.Promise = Promise
 // Spin up a fake mongodb instance
 const MongoMemoryServer = require('mongodb-memory-server').MongoMemoryServer
@@ -80,21 +84,30 @@ describe('Person', function() {
   describe('Authentication', function() {
     it("should fail to authenticate with incorrect email", function(done) {
       Person.getAuthenticatedByEmail(faker.internet.email(), shared_password).then((person) => {
-        expect(person).to.be.null;
+        done("We should reject!")
+      }).catch((err) => {
+        expect(err).to.be.a('number')
+        expect(err).to.be.equal(CONSTANTS.FAILED_LOGIN_REASONS.NOT_FOUND)
         done()
-      }).catch(done)
+      })
     })
     it("should fail to authenticate with incorrect password", function(done) {
       Person.getAuthenticatedByEmail(shared_email_address, faker.internet.password()).then((person) => {
-        expect(person).to.be.null;
+        done("We should reject!")
+      }).catch((err) => {
+        expect(err).to.be.a('number')
+        expect(err).to.be.equal(CONSTANTS.FAILED_LOGIN_REASONS.PASSWORD_INCORRECT)
         done()
-      }).catch(done)
+      })
     })
     it("should fail to authenticate with incorrect email and password", function(done) {
       Person.getAuthenticatedByEmail(faker.internet.email(), faker.internet.password()).then((person) => {
-        expect(person).to.be.null;
+        done("We should reject!")
+      }).catch((err) => {
+        expect(err).to.be.a('number')
+        expect(err).to.be.equal(CONSTANTS.FAILED_LOGIN_REASONS.NOT_FOUND)
         done()
-      }).catch(done)
+      })
     })
     it("should successfully authenticate with correct credentials", function(done) {
       Person.getAuthenticatedByEmail(shared_email_address, shared_password).then((person) => {
@@ -102,23 +115,55 @@ describe('Person', function() {
         done()
       }).catch(done)
     })
-    it("should lock account after 3 wrong attempts", function(done) {
-      Person.getAuthenticatedByEmail(shared_email_address, faker.internet.password()).then((person) => {
-        expect(person).to.be.null
-        Person.getAuthenticatedByEmail(shared_email_address, faker.internet.password())
-      }).then((person) => {
-        expect(person).to.be.null
-        Person.getAuthenticatedByEmail(shared_email_address, faker.internet.password())
-      }).then((person) => {
-        expect(person).to.be.null
-        Person.getAuthenticatedByEmail(shared_email_address, shared_password)
-      }).then((person) => {
-        expect(person).to.be.null
+    it("should lock account after " + CONSTANTS.OPTIONS.MAX_LOGIN_ATTEMPTS + " wrong attempts", function(done) {
+      Person.getAuthenticatedByEmail(shared_email_address, faker.internet.password())
+      .catch((err) => {
+        expect(err).to.be.a('number')
+        expect(err).to.be.equal(CONSTANTS.FAILED_LOGIN_REASONS.PASSWORD_INCORRECT)
+        return Person.getAuthenticatedByEmail(shared_email_address, faker.internet.password())
+      }).catch((err) => {
+        expect(err).to.be.a('number')
+        expect(err).to.be.equal(CONSTANTS.FAILED_LOGIN_REASONS.PASSWORD_INCORRECT)
+        return Person.getAuthenticatedByEmail(shared_email_address, faker.internet.password())
+      }).catch((err) => {
+        expect(err).to.be.a('number')
+        expect(err).to.be.equal(CONSTANTS.FAILED_LOGIN_REASONS.PASSWORD_INCORRECT)
+        return Person.getAuthenticatedByEmail(shared_email_address, faker.internet.password())
+      }).catch((err) => {
+        expect(err).to.be.a('number')
+        expect(err).to.be.equal(CONSTANTS.FAILED_LOGIN_REASONS.MAX_ATTEMPTS)
+        return Person.getAuthenticatedByEmail(shared_email_address, shared_password)
+        //return Person.getAuthenticatedByEmail(shared_email_address, faker.internet.password())
+      }).catch((err) => {
+        expect(err).to.be.a('number')
+        expect(err).to.be.equal(CONSTANTS.FAILED_LOGIN_REASONS.MAX_ATTEMPTS)
         done()
-      }).catch(done)
+      })
+    })
+    it("should unlock locked account using unlock method", function(done) {
+      Person.unlockByEmail(shared_email_address).then(() => {
+        Person.getAuthenticatedByEmail(shared_email_address, shared_password)
+      }).then(() => {
+        done()
+      })
+    })
+    it("should handle unlocked account using unlock method", function(done) {
+      Person.unlockByEmail(shared_email_address).then(() => {
+        Person.getAuthenticatedByEmail(shared_email_address, shared_password)
+      }).then(() => {
+        done()
+      })
+    })
+    it("should fail with unknown account using unlock method", function(done) {
+      Person.unlockByEmail(faker.internet.email()).then((person) => {
+        done("We should reject!")
+      }).catch((err) => {
+        expect(err).to.be.a('number')
+        expect(err).to.be.equal(CONSTANTS.FAILED_LOGIN_REASONS.NOT_FOUND)
+        done()
+      })
     })
   })
-
 
   // it("should create", function(done) {
   //
