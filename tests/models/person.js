@@ -2,17 +2,19 @@ const chai = require('chai'),
       expect = chai.expect
 chai.use(require('chai-like'))
 chai.use(require('chai-things')) // Don't swap these two
+const appRoot = require('app-root-path')
 
 const faker = require('faker')
-const Mongoose = require('mongoose').Mongoose
+const Mongoose = require('singleton-require')('mongoose').Mongoose;
 let mongoose = new Mongoose()
+mongoose.Promise = Promise
 const Models = require('../../models/person')(mongoose),
       Person = Models.PersonModel
 let CONSTANTS = {
   FAILED_LOGIN_REASONS: Models.FAILED_LOGIN_REASONS,
+  FAILED_VERIFICATION_REASONS: Models.FAILED_VERIFICATION_REASONS,
   OPTIONS: Models.OPTIONS
 }
-mongoose.Promise = Promise
 // Spin up a fake mongodb instance
 const MongoMemoryServer = require('mongodb-memory-server').MongoMemoryServer
 const mongod = new MongoMemoryServer()
@@ -38,7 +40,7 @@ describe('Person', function() {
   })
 
   it("should create", function(done) {
-    shared_email_address = faker.internet.email()
+    shared_email_address = faker.internet.email().toLowerCase()
     shared_password = faker.internet.password()
     shared_first_name = faker.name.firstName()
     let person = new Person({
@@ -68,7 +70,8 @@ describe('Person', function() {
   it("should find by email", function(done) {
     Person.findOne({"email_addresses.address": shared_email_address}).then((person) => {
       expect(person).not.to.be.null;
-      expect(person.email_addresses).to.be.an('array').that.contains.something.like({address: shared_email_address});
+      expect(person.email_addresses).to.be.an('array');
+      expect(person.email_addresses[0].address).to.equal(shared_email_address)
       done()
     }).catch(done)
   })
@@ -164,6 +167,92 @@ describe('Person', function() {
       })
     })
   })
+  describe('Email Verification', function() {
+    let verification_code = null
+    it("should fail to verify with no code generated", function(done) {
+      Person.verifyEmailWithCode(shared_email_address, "abc123").then((code) => {
+        done("it should fail!")
+      }).catch((err) => {
+        expect(err).to.be.a('number')
+        expect(err).to.be.equal(CONSTANTS.FAILED_VERIFICATION_REASONS.NO_CODE_GENERATED)
+        done()
+      })
+    })
+    it("should fail to generate verification code with invalid email", function(done) {
+      Person.generateEmailVerificationCode(faker.internet.email(), verification_code).then((code) => {
+        done("it should fail!")
+      }).catch((err) => {
+        expect(err).to.be.a('number')
+        expect(err).to.be.equal(CONSTANTS.FAILED_VERIFICATION_REASONS.NOT_FOUND)
+        done()
+      })
+    })
+    it("should successfully generate verification code", function(done) {
+      Person.generateEmailVerificationCode(shared_email_address).then((code) => {
+        expect(code).to.not.be.null
+        expect(code).to.not.be.empty
+        expect(code).to.have.lengthOf(CONSTANTS.OPTIONS.RANDOM_HASH_LENGTH)
+        verification_code = code
+        done()
+      }).catch(done)
+    })
+    it("should successfully generate a new verification code", function(done) {
+      Person.generateEmailVerificationCode(shared_email_address).then((code) => {
+        expect(code).to.not.be.null
+        expect(code).to.not.be.empty
+        expect(code).to.have.lengthOf(CONSTANTS.OPTIONS.RANDOM_HASH_LENGTH)
+        expect(code).to.not.be.equal(verification_code)
+        verification_code = code
+        done()
+      }).catch(done)
+    })
+    it("should fail to verify with invalid email address", function(done) {
+      Person.verifyEmailWithCode(faker.internet.email(), verification_code).then((code) => {
+        done("it should fail!")
+      }).catch((err) => {
+        expect(err).to.be.a('number')
+        expect(err).to.be.equal(CONSTANTS.FAILED_VERIFICATION_REASONS.NOT_FOUND)
+        done()
+      })
+    })
+    it("should fail to verify with blank code", function(done) {
+      Person.verifyEmailWithCode(shared_email_address, null).then((code) => {
+        done("it should fail!")
+      }).catch((err) => {
+        expect(err).to.be.a('number')
+        expect(err).to.be.equal(CONSTANTS.FAILED_VERIFICATION_REASONS.CODE_EMPTY)
+        done()
+      })
+    })
+    it("should fail to verify with wrong code", function(done) {
+      Person.verifyEmailWithCode(shared_email_address, "abc123").then((code) => {
+        done("it should fail!")
+      }).catch((err) => {
+        expect(err).to.be.a('number')
+        expect(err).to.be.equal(CONSTANTS.FAILED_VERIFICATION_REASONS.CODE_INCORRECT)
+        done()
+      })
+    })
+    it("should be able to verify with verification code", function(done) {
+      Person.verifyEmailWithCode(shared_email_address, verification_code).then((isSuccess) => {
+        done()
+      }).catch(done)
+    })
+  })
+  // describe('Attachment Uploading', function() {
+  //   it("should successfully attach a file to person", function(done) {
+  //     Person.getAuthenticatedByEmail(shared_email_address, shared_password).then((person) => {
+  //       expect(person).not.to.be.null;
+  //       person.attach('attachments', {path: appRoot + '/tests/files/dog1.jpg'}).then(() => {
+  //         person.save()
+  //       }).then(() => {
+  //         expect(person.attachments.length).to.equal(1)
+  //         done()
+  //       })
+  //     }).catch(done)
+  //   })
+  // })
+
 
   // it("should create", function(done) {
   //
