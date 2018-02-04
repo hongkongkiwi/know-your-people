@@ -1,0 +1,1 @@
+Your SMS auth code is {0}

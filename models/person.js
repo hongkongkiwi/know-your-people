@@ -71,6 +71,7 @@ let PersonSchema = new Schema({
                             login_attempts  : { type: Number, required: false, default: 0 },
                             lock_until      : { type: Date, required: false, default: null },
                             is_admin_locked    : { type: Boolean, default: false }
+                            last_logged_ip_v4 : { type: String: default null }
                           },
     user_info           : {
                             suffix      : { type: String, required: false },
@@ -284,14 +285,18 @@ PersonSchema.statics.generateEmailVerificationCode = function(email_address) {
   })
 }
 
-PersonSchema.statics.verifyEmailWithCode = function(email_address, verification_code) {
-  const funcName = "verifyEmail"
+PersonSchema.statics.verifyWithCode = function(verification_code) {
+  const funcName = "verifyWithCode"
   return new Promise((resolve, reject) => {
-    this.findOne({ "email_addresses.address": email_address}).then((person) => {
+    if (_.isNull(verification_code) || _.isUndefined(verification_code)) {
+      debug(funcName, "ERROR: BLANK VERIFICATION CODE")
+      return reject(models.FAILED_VERIFICATION_REASONS.CODE_EMPTY)
+    }
+    this.findOne({ "email_addresses.verification_code": verification_code}).then((person) => {
       // make sure the PERSON exists
       if (_.isNull(person) || _.isUndefined(person)) {
         debug(funcName,"ERROR: PERSON NOT FOUND")
-        return reject(models.FAILED_VERIFICATION_REASONS.NOT_FOUND)
+        return reject(models.FAILED_VERIFICATION_REASONS.CODE_INCORRECT)
       }
 
       // check if the account is currently locked
@@ -299,11 +304,6 @@ PersonSchema.statics.verifyEmailWithCode = function(email_address, verification_
       //   debug(funcName,"ERROR: PERSON IS LOCKED")
       //   return reject(models.FAILED_VERIFICATION_REASONS.PERSON_LOCKED)
       // }
-
-      if (_.isNull(verification_code) || _.isUndefined(verification_code)) {
-        debug(funcName, "ERROR: BLANK VERIFICATION CODE")
-        return reject(models.FAILED_VERIFICATION_REASONS.CODE_EMPTY)
-      }
 
       let addr_idx = -1
       for (var i = 0; i < person.email_addresses.length; i++) {
@@ -363,6 +363,31 @@ PersonSchema.statics.unlockByEmail = function(login_address) {
     })
   })
 }
+
+let EmailVerificationSchema = new Schema({
+    id                  : ObjectId,
+    person_id           : ObjectId,
+    email_address       : String,
+    code_issued         : Date,
+    code                : String,
+})
+
+EmailVerificationSchema.statics.verify = (code) => {
+
+})
+
+let PhoneVerificationSchema = new Schema({
+    id                  : ObjectId,
+    person_id           : ObjectId,
+    country             : String,
+    phone_number        : String,
+    code_issued         : Date,
+    code                : String,
+})
+
+PhoneVerificationSchema.statics.verify = (code) => {
+
+})
 
 let IdentificationSchema = new Schema({
     id                  : ObjectId,

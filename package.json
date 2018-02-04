@@ -12,6 +12,7 @@
     "app-root-path": "^2.0.1",
     "aws-sdk": "^2.188.0",
     "bcrypt": "^1.0.3",
+    "config": "^1.29.4",
     "debug": "^3.1.0",
     "install": "^0.10.4",
     "moment": "^2.20.1",
@@ -20,9 +21,12 @@
     "mongoose-crate": "^1.1.0",
     "mongoose-crate-localfs": "^1.1.4",
     "mongoose-type-email": "^1.0.5",
+    "plivo": "^4.0.0",
     "secure-random-string": "^1.1.0",
     "singleton-require": "^1.0.1",
-    "underscore": "^1.8.3"
+    "string-template": "^1.0.0",
+    "underscore": "^1.8.3",
+    "unique-random": "^1.0.0"
   },
   "devDependencies": {
     "chai": "^4.1.2",

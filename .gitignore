@@ -1,6 +1,7 @@
 package-lock.json
 
 uploads/*
+config/*
 
 # Logs
 logs
